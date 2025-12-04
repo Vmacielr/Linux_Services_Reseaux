@@ -198,3 +198,5 @@ Borg nécessite la saisie du mot de passe de chiffrement lors de la première ut
       * **Résultat attendu :** Vous verrez uniquement le texte : `"Premiere version du document."`, prouvant que la restauration à la version J1 a fonctionné.
 
 L'exercice est validé si les commandes `borg info` montrent la déduplication et si la restauration ramène l'ancienne version.
+
+JE SAIS PAS SI CA MARCHE MAIS MEN FOUS ON VA PAS LUTILISER
