@@ -169,19 +169,19 @@ sudo systemctl enable --now nginx
 
 ```bash
 # Utilisateur
-sudo useradd adrien
-sudo smbpasswd -a adrien
+sudo useradd [VOTRE-UTILISATEUR]
+sudo smbpasswd -a [VOTRE-UTILISATEUR]
 
 # Dossier
 sudo mkdir -p /srv/samba/projet
-sudo chown adrien:adrien /srv/samba/projet
+sudo chown [VOTRE-UTILISATEUR]:[VOTRE-UTILISATEUR] /srv/samba/projet
 sudo chmod 770 /srv/samba/projet
 
 # Config (/etc/samba/smb.conf)
 # Ajouter :
 # [ProjetSecret]
 #    path = /srv/samba/projet
-#    valid users = adrien
+#    valid users = [VOTRE-UTILISATEUR]
 #    read only = no
 
 # SELinux Samba (Critique)
@@ -220,9 +220,9 @@ sudo firewall-cmd --reload
 
 ```bash
 sudo mkdir -p /mnt/sauvegardes/srv-apps
-# Créer l'utilisateur adrien s'il n'existe pas
-sudo useradd adrien
-sudo chown -R adrien:adrien /mnt/sauvegardes
+# Créer l'utilisateur [VOTRE-UTILISATEUR] s'il n'existe pas
+sudo useradd [VOTRE-UTILISATEUR]
+sudo chown -R [VOTRE-UTILISATEUR]:[VOTRE-UTILISATEUR] /mnt/sauvegardes
 sudo chmod -R 770 /mnt/sauvegardes
 ```
 
@@ -240,7 +240,7 @@ Nous configurons l'utilisateur `root` pour qu'il puisse se connecter sans mot de
 # Sur SRV-APPS
 sudo -i  # Passer en root
 ssh-keygen -t rsa # (Entrée, Entrée, Entrée)
-ssh-copy-id adrien@192.168.142.12
+ssh-copy-id [VOTRE-UTILISATEUR]@192.168.142.12
 exit # Quitter root
 ```
 
@@ -253,7 +253,7 @@ sudo crontab -e
 Ajouter la ligne (tous les jours à 03h00) :
 
 ```cron
-0 3 * * * /usr/bin/rsync -az --delete /srv/samba/projet/ adrien@192.168.142.12:/mnt/sauvegardes/srv-apps/ > /dev/null 2>&1
+0 3 * * * /usr/bin/rsync -az --delete /srv/samba/projet/ [VOTRE-UTILISATEUR]@192.168.142.12:/mnt/sauvegardes/srv-apps/ > /dev/null 2>&1
 ```
 
 -----
@@ -285,5 +285,5 @@ sudo nmcli con up static-hostonly
 | **Ping DNS** | `ping -c 3 192.168.142.10` | 0% packet loss |
 | **Résolution** | `dig web.monlabo.lan` | Réponse : **192.168.142.11** |
 | **Accès Web** | `curl -k https://web.monlabo.lan` | Code HTML affiché |
-| **Accès Fichiers** | `smbclient //web.monlabo.lan/ProjetSecret -U adrien` | Connexion réussie (`smb: \>`) |
+| **Accès Fichiers** | `smbclient //web.monlabo.lan/ProjetSecret -U [VOTRE-UTILISATEUR]` | Connexion réussie (`smb: \>`) |
 | **Vérif. Backup** | `ls -l /mnt/sauvegardes/srv-apps` (Sur SRV-BACKUP) | Fichiers présents |
