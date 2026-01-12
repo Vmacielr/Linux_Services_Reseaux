@@ -278,12 +278,139 @@ sudo nmcli con up "enp0s3"
 sudo nmcli con up static-hostonly
 ```
 
-### 7.2. Tableau de Validation
+---
 
-| Test | Commande | Résultat Attendu |
-| :--- | :--- | :--- |
-| **Ping DNS** | `ping -c 3 192.168.142.10` | 0% packet loss |
-| **Résolution** | `dig web.monlabo.lan` | Réponse : **192.168.142.11** |
-| **Accès Web** | `curl -k https://web.monlabo.lan` | Code HTML affiché |
-| **Accès Fichiers** | `smbclient //web.monlabo.lan/ProjetSecret -U [VOTRE-UTILISATEUR]` | Connexion réussie (`smb: \>`) |
-| **Vérif. Backup** | `ls -l /mnt/sauvegardes/srv-apps` (Sur SRV-BACKUP) | Fichiers présents |
+## 📦 8. Modernisation : Conteneurisation et Orchestration (Sur SRV-APPS)
+
+Cette section documente le passage d'une infrastructure traditionnelle vers une architecture basée sur les conteneurs. Toutes les manipulations sont effectuées sur **SRV-APPS (192.168.142.11)**.
+
+### 8.1. Installation des moteurs de conteneurs
+
+```bash
+# Podman & Compose (Alternatif à Docker)
+sudo dnf install podman podman-compose -y
+
+# LXC (Conteneurs Systèmes)
+sudo dnf install lxc lxc-templates lxc-extra -y
+
+# containerd (Runtime de bas niveau - via dépôt Docker-CE)
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install containerd.io -y
+sudo systemctl enable --now containerd
+
+```
+
+### 8.2. Orchestration Multi-Services (Podman Compose)
+
+Déploiement d'une stack Web complète (WordPress + Base de données) avec persistance des données.
+
+**Fichier `docker-compose.yml` :**
+
+```yaml
+services:
+  db:
+    image: mariadb:10.6
+    volumes:
+      - db_data:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: root_password
+
+  wordpress:
+    image: wordpress:latest
+    ports:
+      - "8082:80"
+    volumes:
+      - wp_data:/var/www/html
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: user
+      WORDPRESS_DB_PASSWORD: password
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      - db
+
+volumes:
+  db_data:
+  wp_data:
+
+```
+
+**Commandes de gestion :**
+
+```bash
+podman-compose up -d    # Lancer la stack
+podman-compose down     # Arrêter (données conservées dans les volumes)
+
+```
+
+### 8.3. Sécurité Rootless et Intégration Systemd
+
+Podman permet de gérer des **Pods** (groupes de conteneurs partageant le réseau `localhost`) sans privilèges root, intégrés directement comme services utilisateur.
+
+```bash
+# 1. Création d'un Pod
+podman pod create --name mon-pod -p 8083:80
+
+# 2. Génération des fichiers systemd (Mode Utilisateur)
+mkdir -p ~/.config/systemd/user/
+podman generate systemd --name mon-pod --files --new
+mv *.service ~/.config/systemd/user/
+
+# 3. Activation du service au boot (sans sudo)
+systemctl --user daemon-reload
+systemctl --user enable --now pod-mon-pod.service
+
+```
+
+### 8.4. Conteneurs Systèmes (LXC)
+
+Contrairement aux conteneurs applicatifs, LXC simule un OS complet. Sur Rocky Linux, une configuration réseau spécifique est requise.
+
+**Configuration du Pont Réseau (`lxcbr0`) :**
+
+```bash
+sudo nmcli con add type bridge ifname lxcbr0 con-name lxcbr0
+sudo nmcli con mod lxcbr0 ipv4.addresses 10.0.3.1/24 ipv4.method manual
+sudo nmcli con up lxcbr0
+
+```
+
+**Cycle de vie du conteneur :**
+
+```bash
+# Création d'un OS Ubuntu 22.04
+sudo lxc-create -t download -n ubuntu-test -- --dist ubuntu --release jammy --arch amd64
+# Gestion
+sudo lxc-start -n ubuntu-test
+sudo lxc-attach -n ubuntu-test  # Accès direct au shell systemd
+
+```
+
+### 8.5. Analyse des Runtimes (Bas niveau)
+
+Utilisation de `containerd` via l'outil `ctr` pour manipuler les couches (layers) sans passer par l'abstraction Podman/Docker.
+
+```bash
+# Téléchargement manuel
+sudo ctr images pull docker.io/library/redis:alpine
+# Exécution d'une Task (Processus isolé)
+sudo ctr run -d docker.io/library/redis:alpine mon-redis
+sudo ctr tasks ls
+
+```
+
+---
+
+### 🧪 9. Tableau de Validation Final (Architecture Hybride)
+
+| Service | Technologie | Accès / Commande | Résultat Attendu |
+| --- | --- | --- | --- |
+| **Web Wordpress** | Podman | `http://srv-apps:8082` | Page d'installation WP |
+| **Pod Sécurisé** | Podman Rootless | `systemctl --user status` | Service actif (non-root) |
+| **OS Ubuntu** | LXC | `lxc-info -n ubuntu-test` | État: **RUNNING** |
+| **Runtime** | containerd | `sudo ctr images ls` | Images isolées de Podman |
+
+---
