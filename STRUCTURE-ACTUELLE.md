@@ -567,6 +567,7 @@ Les alertes ont été testées manuellement pour vérifier le passage de l'état
 | --- | --- | --- | --- |
 | **Prometheus Targets** | SRV-APPS | `http://192.168.142.11:9090/targets` | 2 Nodes en état **UP** |
 | **Grafana Dashboard** | SRV-APPS | `http://192.168.142.11:3000` | Graphiques temps réel (ID 1860) |
-| **Alerte CPU** | Toutes | Interface Prometheus (`/alerts`) | État **FIRING** si CPU > 80% |
+| **Alerte CPU** | SRV-APPS | Interface Prometheus (`/alerts`) | État **FIRING** si CPU > 80% |
+| **Alerte Disque** | SRV-APPS | Interface Prometheus (`/alerts`) | État **FIRING** si Disque > 95% |
 | **Sonde DNS** | SRV-DNS | `systemctl status node_exporter` | État **active (running)** |
 | **Persistance** | SRV-APPS | `podman volume inspect grafana_data` | Données conservées après reboot |
