@@ -414,3 +414,159 @@ sudo ctr tasks ls
 | **Runtime** | containerd | `sudo ctr images ls` | Images isolées de Podman |
 
 ---
+
+## 📊 10. Supervision : Surveillance et Observabilité
+
+Cette section documente la mise en place d'une stack de monitoring complète pour surveiller la santé des VMs du réseau `monlabo.lan`.
+
+### 10.1. Outils de Diagnostic Manuel (Sur toutes les VMs)
+
+Avant l'automatisation, des outils natifs permettent un diagnostic rapide des ressources.
+
+```bash
+# Installation des outils de base
+sudo dnf install epel-release -y
+sudo dnf install htop nethogs -y
+
+# Commandes de vérification rapide
+htop                # CPU, RAM et Processus (visuel)
+df -h               # Occupation des disques
+free -h             # Mémoire disponible (colonne 'available')
+ss -tuln            # État des ports réseaux
+
+```
+
+### 10.2. Centralisation des Métriques (Stack Prometheus & Grafana)
+
+Déploiement d'une stack de supervision sur **SRV-APPS (192.168.142.11)** via Podman-Compose, avec persistance des données pour Grafana.
+
+**Fichier `~/monitoring/docker-compose.yml` :**
+
+```yaml
+services:
+  prometheus:
+    image: docker.io/prom/prometheus
+    container_name: monitoring_prometheus_1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:Z
+      - ./alert.rules.yml:/etc/prometheus/alert.rules.yml:Z
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: docker.io/grafana/grafana
+    container_name: monitoring_grafana_1
+    volumes:
+      - grafana_data:/var/lib/grafana:Z # Persistance des dashboards
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter
+    container_name: monitoring_node-exporter_1
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - '--path.rootfs=/host'
+    ports:
+      - "9100:9100"
+
+volumes:
+  grafana_data: # Volume persistant pour Grafana
+
+```
+
+### 10.3. Configuration de la Collecte (`prometheus.yml`)
+
+Prometheus est configuré pour collecter les données de **SRV-APPS** (via le réseau interne Podman) et de **SRV-DNS** (via le réseau Host-Only).
+
+```yaml
+global:
+  scrape_interval: 15s
+
+rule_files:
+  - "alert.rules.yml" # Chargement des règles d'alerting
+
+scrape_configs:
+  - job_name: 'nodes'
+    static_configs:
+      - targets: 
+          - 'node-exporter:9100'        # SRV-APPS
+          - '192.168.142.10:9100'      # SRV-DNS
+
+```
+
+![alt text](image-1.png)
+
+### 10.4. Installation de la Sonde sur SRV-DNS (Mode Service)
+
+Sur **SRV-DNS (192.168.142.10)**, l'exportateur est installé comme un service Systemd pour plus de légèreté.
+
+```bash
+# Installation du binaire
+sudo mv node_exporter /usr/local/bin/
+sudo chmod +x /usr/local/bin/node_exporter
+sudo chcon -t bin_t /usr/local/bin/node_exporter # Contexte SELinux
+
+# Création du service (/etc/systemd/system/node_exporter.service)
+# [Unit] Description=Node Exporter ...
+# [Service] ExecStart=/usr/local/bin/node_exporter ...
+
+sudo systemctl enable --now node_exporter
+sudo firewall-cmd --permanent --add-port=9100/tcp && sudo firewall-cmd --reload
+
+```
+
+![alt text](image.png)
+
+---
+
+## 🚨 11. Alerting Automatique
+
+Mise en place de notifications automatiques basées sur des seuils critiques définis dans `alert.rules.yml`.
+
+### 11.1. Définition des Règles (`alert.rules.yml`)
+
+```yaml
+groups:
+  - name: infrastructure_alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+
+      - alert: DiskAlmostFull
+        expr: (1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 > 95
+        for: 1m
+        labels:
+          severity: critical
+
+```
+
+### 11.2. Simulation et Validation des Alertes
+
+Les alertes ont été testées manuellement pour vérifier le passage de l'état **PENDING** à **FIRING**.
+
+* **Test CPU** : `stress-ng --cpu 2 --timeout 150s` (Déclenche `HighCPUUsage`).
+
+![alt text](image-3.png)
+
+* **Test Disque** : `sudo fallocate -l 5G /tmp/disk_test` (Déclenche `DiskAlmostFull`).
+
+![alt text](image-2.png)
+
+---
+
+## 🧪 12. Tableau de Validation Final (Architecture Supervisée)
+
+| Service | Machine | Accès / Test | Résultat Attendu |
+| --- | --- | --- | --- |
+| **Prometheus Targets** | SRV-APPS | `http://192.168.142.11:9090/targets` | 2 Nodes en état **UP** |
+| **Grafana Dashboard** | SRV-APPS | `http://192.168.142.11:3000` | Graphiques temps réel (ID 1860) |
+| **Alerte CPU** | Toutes | Interface Prometheus (`/alerts`) | État **FIRING** si CPU > 80% |
+| **Sonde DNS** | SRV-DNS | `systemctl status node_exporter` | État **active (running)** |
+| **Persistance** | SRV-APPS | `podman volume inspect grafana_data` | Données conservées après reboot |
