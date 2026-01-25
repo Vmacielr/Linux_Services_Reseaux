@@ -559,14 +559,169 @@ Les alertes ont été testées manuellement pour vérifier le passage de l'état
 
 ![alt text](image-2.png)
 
+
 ---
 
-## 🧪 12. Tableau de Validation Final (Architecture Supervisée)
+## 📜 12. Observabilité Avancée : Centralisation des Logs avec Loki
+
+Cette section marque le passage d'un monitoring passif (métriques) à une **observabilité active**. En intégrant **Grafana Loki**, l'infrastructure analyse désormais le contexte textuel (logs) des événements système en corrélation avec les métriques Prometheus.
+
+### Avant de commencer ...
+
+#### Modification du fichier `docker-compose.yml`
+
+```yaml
+services:
+  prometheus:
+    image: docker.io/prom/prometheus
+    container_name: monitoring_prometheus_1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:Z
+      - ./alert.rules.yml:/etc/prometheus/alert.rules.yml:Z
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: docker.io/grafana/loki:latest
+    container_name: monitoring_loki_1
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  grafana:
+    image: docker.io/grafana/grafana
+    container_name: monitoring_grafana_1
+    volumes:
+      - grafana_data:/var/lib/grafana:Z
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+
+  promtail:
+    image: docker.io/grafana/promtail:latest
+    container_name: monitoring_promtail_1
+    volumes:
+      - /var/log:/var/log:ro  # Montage des logs hôtes en lecture seule
+      - ./promtail-config.yml:/etc/promtail/config.yml:Z
+    command: -config.file=/etc/promtail/config.yml
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter
+    container_name: monitoring_node-exporter_1
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - '--path.rootfs=/host'
+    ports:
+      - "9100:9100"
+
+volumes:
+  grafana_data:
+
+```
+
+---
+
+### 12.1. Configuration de l'Agent Promtail
+
+Promtail est l'agent responsable de "l'aspiration" des logs sur la machine hôte (**SRV-APPS**) pour les envoyer vers le serveur Loki.
+
+**Création du fichier `~/monitoring/promtail-config.yml` :**
+
+```yaml
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+- job_name: system
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      job: varlogs
+      host: srv-apps
+      __path__: /var/log/*log  # Collecte tous les fichiers .log standards
+
+```
+
+### 12.2. Gestion des Permissions (Défi SELinux & Rootless)
+
+L'utilisation de **Podman en mode Rootless** impose une contrainte de sécurité : le conteneur n'a pas les privilèges root nécessaires pour lire les fichiers systèmes protégés (comme `/var/log/messages` ou `/var/log/nginx/error.log`) ni pour modifier leurs étiquettes SELinux.
+
+**Solution appliquée pour la démonstration :**
+Passage temporaire de SELinux en mode permissif afin d'autoriser la lecture des logs sans bloquer le processus.
+
+```bash
+# Vérification des erreurs (Si permission denied)
+podman logs monitoring_promtail_1
+
+# Autorisation temporaire
+sudo setenforce 0
+
+```
+
+### 12.3. Analyse via LogQL (Grafana Explore)
+
+L'interrogation des logs se fait via le langage **LogQL** dans l'interface Grafana.
+
+**Requêtes types utilisées :**
+
+1. **Voir tous les logs de la machine :**
+```logql
+{job="varlogs"}
+
+```
+
+
+2. **Filtrer une erreur spécifique (ex: Nginx) :**
+```logql
+{job="varlogs"} |= "nginx"
+
+```
+
+
+3. **Retrouver un événement marqué manuellement :**
+```logql
+{job="varlogs"} |= "PRESENTATION"
+
+```
+
+
+
+### 12.4. Scénario de Validation (Corrélation)
+
+Pour prouver le fonctionnement de la chaîne complète, nous simulons un événement traçable.
+
+1. **Génération d'un log manuel sur SRV-APPS :**
+```bash
+logger "DEBUT_DEMO_LOKI_GRAFANA"
+
+```
+
+
+2. **Vérification dans Grafana :**
+* Aller dans l'onglet **Explore**.
+* S'assurer que la source est **Loki**.
+* Lancer la requête `{job="varlogs"}`.
+* Le message apparaît avec le timestamp précis, confirmant l'ingestion en temps réel.
+
+
+
+## 🧪 13. Tableau de Validation Final (Architecture Supervisée)
 
 | Service | Machine | Accès / Test | Résultat Attendu |
-| --- | --- | --- | --- |
+| :--- | :--- | :--- | :--- |
 | **Prometheus Targets** | SRV-APPS | `http://192.168.142.11:9090/targets` | 2 Nodes en état **UP** |
-| **Grafana Dashboard** | SRV-APPS | `http://192.168.142.11:3000` | Graphiques temps réel (ID 1860) |
+| **Grafana Dashboard** | SRV-APPS | `http://192.168.142.11:3000` | Graphiques temps réel |
+| **Logs (Loki)** | SRV-APPS | Grafana Explore (`{job="varlogs"}`) | Streaming des logs en direct |
 | **Alerte CPU** | SRV-APPS | Interface Prometheus (`/alerts`) | État **FIRING** si CPU > 80% |
 | **Alerte Disque** | SRV-APPS | Interface Prometheus (`/alerts`) | État **FIRING** si Disque > 95% |
 | **Sonde DNS** | SRV-DNS | `systemctl status node_exporter` | État **active (running)** |

@@ -1,67 +1,59 @@
-## 🟢 Introduction : Pourquoi Rocky Linux ?
+## 🏗️ Introduction : Pourquoi Rocky Linux ?
 
-Avant de toucher au clavier, explique ton choix d'OS :
-
-* **Stabilité Entreprise :** Rocky Linux est le successeur spirituel de CentOS. Il est 100% compatible avec RHEL (Red Hat Enterprise Linux).
-* **Sécurité Native :** Il intègre nativement des outils de sécurité avancés comme **SELinux** et **Firewalld**, indispensables en milieu professionnel.
-* **Professionnalisme :** Apprendre sur Rocky Linux, c'est se préparer aux environnements de production réels (banques, serveurs d'État, grandes entreprises).
+* **Standard Entreprise** : Rocky Linux est la suite logique de CentOS, offrant une compatibilité totale avec RHEL (Red Hat Enterprise Linux).
+* **Stabilité et Sécurité** : Il inclut nativement **SELinux** et des outils de gestion réseau robustes indispensables en production.
 
 ---
 
-## 🧠 1. VM 1 : SRV-DNS (Le Cerveau)
+## 🌐 1. SRV-DNS : Le Cerveau du Réseau (192.168.142.10)
 
-**Rôle :** Traduire les noms en adresses IP et gérer les accès internet.
+**Rôle** : Centraliser la résolution de noms pour éviter de gérer des adresses IP complexes.
 
-| Commande (sur **SRV-DNS**) | Pourquoi cette technologie ? | En quoi c'est bien ? |
+| Action | Commande (sur **SRV-DNS**) | Pourquoi / Bénéfice |
 | --- | --- | --- |
-| `sudo systemctl status named` | Utilisation de **BIND9**, le standard mondial du DNS. | **Fiabilité :** C'est l'outil le plus documenté et le plus robuste au monde. |
-| **Passer sur VM 4 (CLI-TEST) :** `dig srv-apps.monlabo.lan` | Utilisation d'une **Zone de recherche directe**. | **Scalabilité :** Plus besoin de retenir des IPs. On ajoute un serveur ? On met à jour le DNS, et tout le monde le trouve par son nom. |
+| **Vérifier BIND** | `sudo systemctl status named` | Utilisation du standard mondial pour la résolution de noms. |
+| **Test Client** | (Sur **CLI-TEST**) : `nslookup web.monlabo.lan` | **Bénéfice** : Facilité de maintenance. Si l'IP change, on ne modifie qu'un seul fichier zone. |
+| **Forwarding** | (Sur **CLI-TEST**) : `ping google.com` | **Bénéfice** : Les serveurs isolés peuvent se mettre à jour via le DNS sans exposition directe. |
 
 ---
 
-## 🚀 2. VM 2 : SRV-APPS (Le Cœur des Services)
+## 🚀 2. SRV-APPS : Le Cœur des Services (192.168.142.11)
 
-**Rôle :** Héberger les sites web, les fichiers et les conteneurs.
+**Rôle** : Héberger les applications web, le partage de fichiers et la pile d'observabilité.
 
-| Commande (sur **SRV-APPS**) | Pourquoi cette technologie ? | En quoi c'est bien ? |
+| Action | Commande (sur **SRV-APPS**) | Pourquoi / Bénéfice |
 | --- | --- | --- |
-| `podman-compose ps` | **Podman** (au lieu de Docker). | **Sécurité :** Podman est "rootless" (ne tourne pas en admin). Si le conteneur est piraté, l'attaquant reste bloqué sans droits sur la VM. |
-| `sudo lxc-ls -f` | **LXC** (Conteneurs systèmes). | **Densité :** On simule un OS complet (Ubuntu) sans la lourdeur d'une VM. On peut faire tourner 50 conteneurs LXC là où on ferait tourner 5 VMs. |
-| `sudo getsebool -a | grep samba` | **SELinux** activé sur Samba. |
+| **Web HTTPS** | `curl -kI https://web.monlabo.lan` | **Sécurité** : Chiffrement des flux avec certificats auto-signés via OpenSSL. |
+| **Conteneurs** | `podman-compose ps` | **Sécurité** : Podman est "Rootless", limitant l'impact en cas de compromission. |
+| **LXC** | `sudo lxc-ls -f` | **Efficience** : Isolation de type système (OS complet) sans la lourdeur d'une VM classique. |
 
 ---
 
-## 💾 3. VM 3 : SRV-BACKUP (Le Coffre-fort)
+## 🛡️ 3. SRV-BACKUP : La Résilience (192.168.142.12)
 
-**Rôle :** Stocker les données de manière isolée.
+**Rôle** : Stockage sécurisé et isolé pour la survie des données.
 
-| Commande (sur **SRV-APPS**) | Pourquoi cette technologie ? | En quoi c'est bien ? |
+| Action | Commande (sur **SRV-APPS**) | Pourquoi / Bénéfice |
 | --- | --- | --- |
-| `sudo rsync -az --delete /srv/samba/projet/ ...` | **Rsync via SSH**. | **Efficience :** Rsync ne transfère que les parties de fichiers qui ont changé (incrémental). C'est rapide et ça ne sature pas le réseau. |
-| **Sur VM 3 (SRV-BACKUP) :** `ls -lh /mnt/sauvegardes/srv-apps/` | **Stockage déporté**. | **Résilience :** En cas d'incendie ou de crash total de SRV-APPS, l'entreprise peut redémarrer en quelques minutes grâce à cette copie isolée. |
+| **Sauvegarde** | `rsync -az --delete /srv/samba/projet/ [USER]@192.168.142.12:/mnt/sauvegardes/` | **Performance** : Rsync ne transfère que les différences, économisant la bande passante. |
+| **Sécurité SSH** | (Sur **SRV-BACKUP**) : `ss -tuln` | **Isolation** : Seul le port 22 (SSH) est ouvert, réduisant la surface d'attaque. |
 
 ---
 
-## 📊 4. Supervision (Observabilité)
+## 📊 4. Observabilité Totale (Prometheus & Loki)
 
-**Outils :** Prometheus & Grafana sur **SRV-APPS**.
+**Rôle** : Surveiller la santé (Métriques) et comprendre les incidents (Logs).
 
-| Commande (sur **SRV-APPS**) | Pourquoi cette technologie ? | En quoi c'est bien ? |
+| Action | Commande / Interface | Pourquoi / Bénéfice |
 | --- | --- | --- |
-| `stress-ng --cpu 4 --timeout 20s` | Simulation de charge CPU. | **Proactivité :** On ne répare pas quand ça casse, on surveille pour intervenir *avant* que ça ne casse. |
-| **Sur ton navigateur :** Montre les alertes Prometheus. | **Alerting automatique**. | **Tranquillité :** L'administrateur reçoit une alerte dès qu'un seuil critique (95% disque) est atteint. |
+| **Métriques** | `http://192.168.142.11:9090` | **Proactivité** : Surveillance des ressources (CPU/RAM) en temps réel avec Prometheus. |
+| **Logs (Loki)** | **Grafana Explore** : `{job="varlogs"}` | **Diagnostic rapide** : Centralisation des journaux système pour identifier les causes racines. |
+| **Incident** | `sudo systemctl stop nginx` | **Démo** : Montre l'alerte de service et la ligne "Stopped Nginx" dans Loki instantanément. |
 
 ---
 
 ## 🏁 Conclusion de la présentation
 
-Pour terminer en beauté, adresse-toi au jury ainsi :
-
-> "Pour conclure, ce projet démontre une infrastructure **moderne et souveraine**.
-> * **Moderne** par l'utilisation de la conteneurisation (Podman, LXC) et du monitoring en temps réel.
-> * **Souveraine** car basée sur des technologies Open Source éprouvées, sans dépendance logicielle coûteuse.
-> 
-> 
-> La force de cette architecture réside dans son **cloisonnement** : chaque service a son rôle, chaque accès est sécurisé par un pare-feu et SELinux, et chaque donnée est protégée par une sauvegarde automatisée. C'est une base solide, prête à évoluer vers le Cloud ou le Multi-site."
+> "En conclusion, cette architecture sur **Rocky Linux** démontre une infrastructure moderne et cloisonnée. Grâce à l'intégration de **Prometheus** pour les métriques et de **Loki** pour les logs, nous avons une visibilité complète. Nous ne nous contentons pas de savoir *quand* un service tombe, nous comprenons *pourquoi*, tout en garantissant la sécurité via **SELinux** et l'isolation des sauvegardes."
 
 ---
